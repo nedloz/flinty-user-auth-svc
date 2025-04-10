@@ -7,7 +7,7 @@ const redisClient = require('../utils/redisClient');
 const send2FACodeViaSms = require('../utils/smsService');
 const createUserSessionAndIssueTokens = require('../utils/sessionService');
 const generate2FACode = require('../utils/twoFactorService');
-
+const logger = require('../utils/logger');
 
 
 // пользователь вводит email, password, username
@@ -50,11 +50,11 @@ const register = async (req, res, next) => {
             username
         })
         logger.info(`Профиль пользователя ${userId} сохранен в UserProfile`);
-        
+
         const tokenResponce = await createUserSessionAndIssueTokens(user, req, res);
         res.status(201).json(tokenResponce);
         logger.info(`Токены отправлены пользователю ${user.user_id}`);
-        
+
     } catch (err) {
         next(err);
     }
@@ -85,9 +85,9 @@ const login = async (req, res, next) => {
 
             await send2FACodeViaSms(user.phone_number, code);
             logger.info(`2FA код пользователя ${user.user_id} создан и отправлен`);
-            return res.status(403).json({ 
-                message: '2FA required', 
-                user_id: user.user_id 
+            return res.status(403).json({
+                message: '2FA required',
+                user_id: user.user_id
             });
         }
 
@@ -98,7 +98,7 @@ const login = async (req, res, next) => {
     } catch (err) {
         next(err);
     }
-    
+
 }
 
 const verify2FA = async (req, res, next) => {
@@ -148,35 +148,30 @@ const verify2FA = async (req, res, next) => {
 const refreshToken = async (req, res, next) => {
     try {
         const { refreshToken } = req.cookies;
-        
         if (!refreshToken) {
             res.status(401);
             throw new Error("Refresh токен отсутствует");
         }
 
         let payload;
-
         try {
             payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
         } catch (err) {
             res.status(403);
             next(new Error("Невалидный refresh token"));
         }
-        logger.info(`Refresh токен успешно расшифрован, сессия: ${payload.session_id}`);
+        const { user_id, session_id } = payload;
+        logger.info(`Refresh токен успешно расшифрован, сессия: ${session_id}`);
 
-        const sessionKey = `refresh:session:${payload.session_id}`;
+        const sessionKey = `session:${user_id}:${session_id}`;
         const session = await redisClient.get(sessionKey);
-        logger.info(``);
-        
         if (!session) {
             res.status(403);
-            throw new Error('Сессия не найдена или истекла');
+            throw new Error('Сессия истекла или недействительна');
         }
-        logger.info(`Cессия ${payload.session_id} найдена`);
+        logger.info(`Cессия ${session_id} найдена`);
 
-        const sessionData = JSON.parce(session);
-        const user = await Auth.findOne({ user_id: sessionData.user_id });
-
+        const user = await Auth.findOne({ user_id });
         if (!user) {
             res.status(404);
             throw new Error("Пользователь не найден");
@@ -184,12 +179,12 @@ const refreshToken = async (req, res, next) => {
         logger.info(`Пользователь ${user.user_id} найден`);
 
         await redisClient.del(sessionKey);
+        await redisClient.sRem(`sessions_of:${user_id}`, session_id);
         logger.info(`Cессия ${payload.session_id} удалена`);
 
         const tokenResponce = await createUserSessionAndIssueTokens(user, req, res);
         res.status(201).json(tokenResponce);
         logger.info(`Токены отправлены пользователю ${user.user_id}`);
-
     } catch (err) {
         next(err);
     }
@@ -198,7 +193,6 @@ const refreshToken = async (req, res, next) => {
 const logout = async (req, res, next) => {
     try {
         const { refreshToken } = req.cookies;
-
         if (!refreshToken) {
             res.status(401);
             throw new Error("Refresh токен отсутствует");
@@ -212,12 +206,15 @@ const logout = async (req, res, next) => {
             res.status(403);
             next(new Error("Невалидный refresh token"));
         }
-        logger.info(`Refresh токен успешно расшифрован, сессия: ${payload.session_id}`);
+        const userId = payload.user_id;
+        const sessionId = payload.session_id;
+        logger.info(`Refresh токен успешно расшифрован, сессия: ${sessionId}`);
 
-        const sessionKey = `refresh:session:${payload.session_id}`;
+        const sessionKey = `session:${userId}:${sessionId}`;
         await redisClient.del(sessionKey);
-        res.clearCookie('refresh_token');
+        await redisClient.sRem(`sessions_of:${userId}`);
 
+        res.clearCookie('refresh_token');
         res.status(200).json({
             message: "Успешный выход из системы"
         })
@@ -227,7 +224,6 @@ const logout = async (req, res, next) => {
         next(err);
     }
 }
-
 
 const enable2FA = async (req, res, next) => {
     try {
@@ -287,30 +283,139 @@ const enable2FA = async (req, res, next) => {
     }
 }
 
+const request2FACode = async (req, res, next) => {
+    try {
+        const { user_id } = req.body;
 
-// post /auth/login
-// post /auth/verify-2fa
-// post /auth/refresh
-// post /auth/logout
-// post /auth/register
-// patch /auth/2fa
-// post /auth/request-2fa-code
-// get /users/me
-// patch /users/me
-// get /auth/sessions 
-// delete /auth/sessions 
+        if (!user_id) {
+            res.status(400);
+            throw new Error('Не указан user_id');
+        }
 
-// generateAccesToken(user)
-// generateRefreshToken(session_id)
-// generate2FACode()
-// storeRefreshToken(session_id, user_id, ttl)
-// getRefreshToken(session_id)
-// revokeRefreshToken(session_id)
-// listUserSessions(user_id)
-// revokeAllSessionsExcept(user_id, current_session_id)
+        const user = await Auth.findOne(user_id);
+        if (!user) {
+            res.status(404);
+            throw new Error('Пользователь не найден');
+        }
 
+        if (!user.two_factor?.enabled) {
+            res.status(400);
+            throw new Error('2fa не включена для этого пользователя');
+        }
 
+        const code = generate2FACode();
+        const expiresAt = new (Date(Date.now() + 5 * 60 * 1000));
 
+        user.two_factor.code = code;
+        user.two_factor.expires_at = expiresAt;
+
+        await user.save();
+
+        res.status(200).json({
+            message: 'Новый код подтвержения отправлен'
+        })
+    } catch (err) {
+        next(err);
+    }
+}
+
+const getUserSessions = async (req, res, next) => {
+    try {
+        const userId = req.user?.user_id;
+        if (!userId) {
+            res.status(401);
+            throw new Error('Пользователь не авторизован');
+        }
+
+        const sessionIds = await redisClient.sMembers(`sessions_of:${userId}`);
+        const sessions = [];
+
+        for (const sessionId of sessionIds) {
+            const raw = await redisClient.get(`session:${userId}:${sessionId}`);
+            if (!raw) continue;
+            try {
+                const session = JSON.parse(raw);
+                sessions.push({
+                    session_id: sessionId,
+                    ip: session.ip,
+                    device_name: session.device_name,
+                    created_at: session.created_at,
+                    last_seen_at: session.last_seen_at
+                })
+            } catch (err) {
+                await redisClient.del(`session:${userId}:${sessionId}`);
+                await redisClient.sRem(`sessions_of:${userId}`, sessionId);
+                logger.err(`${err.method} - ${req.url} данные поврежденной сессии ${sessionId} были удалены`);
+            }
+        }
+
+        res.json({ sessions });
+    } catch (err) {
+        next(err);
+    }
+}
+
+const deleteSessionById = async (req, res, next) => {
+    try {
+        const userId = req.user?.user_id;
+        const sessionId = req.params.id
+        if (!userId || !sessionId) {
+            res.status(400);
+            throw new Error('Пользователь не авторизован');
+        }
+        const key = `session:${userId}:${sessionId}`
+
+        const sessionExists = await redisClient.exists(key);
+        if (!sessionExists) {
+            res.status(404);
+            throw new Error('Сессия не найдена');
+        }
+
+        await redisClient.del(key);
+        await redisClient.sRem(`sessions_of:${userId}`);
+        res.status(200).json({
+            message: 'Сессия завершена'
+        });
+        
+    } catch (err) {
+        next(err);
+    }
+}
+
+const deleteAllSessionsExceptCurrent = async (req, res, next) => {
+    try {
+        const { refreshToken } = req.cookies;
+        if (!refreshToken) {
+            res.status(401);
+            throw new Error("Refresh токен отсутствует");
+        }
+
+        let payload;
+        try {
+            payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+        } catch (err) {
+            res.clearCookie('refresh_token');
+            res.status(403);
+            next(new Error("Невалидный refresh token"));
+        }
+        const userId = payload.user_id;
+        const currentSessionId = payload.session_id;
+        logger.info(`Refresh токен успешно расшифрован, сессия: ${currentSessionId}`);
+
+        const sessionIds = await redisClient.sMembers(`sessions_of:${userId}`);
+        const toDelete = sessionIds.filter(id => id !== currentSessionId)
+
+        for (const sessionId of toDelete) {
+            await redisClient.del(`session:${userId}:${sessionId}`);
+            await redisClient.sRem(`sessions_of:${userId}`, sessionId);
+        }
+        res.status(200).json({
+            message: 'Все сессии кроме текущей завершены'
+        })
+    } catch (err) {
+        next(err);
+    }
+}
 
 
 module.exports = {
@@ -319,6 +424,9 @@ module.exports = {
     verify2FA,
     refreshToken,
     logout,
-
-
+    enable2FA,
+    request2FACode,
+    getUserSessions,
+    deleteSessionById,
+    deleteAllSessionsExceptCurrent,
 }

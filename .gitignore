@@ -1,4 +1,60 @@
-node_modules
-.env
+# 🚀 Node.js (исключаем зависимости)
+node_modules/
 package-lock.json
-logs
+
+# 🗄️ Логи
+logs/
+logs/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 🔑 Файлы конфигурации и секретные ключи
+.env
+.env.local
+.env.development
+.env.production
+
+# 📦 Кеши
+.cache/
+coverage/
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# 🔧 IDE/Редакторы кода
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 🚀 Docker
+docker-compose.override.yml
+.dockerignore
+
+# 🔥 Базы данных и сессии
+*.sqlite
+*.sqlite3
+*.db
+*.tgz
+dump.rdb
+redis-data/
+postgres-data/
+
+# 📸 Файлы сгенерированных статей и build-файлы
+build/
+dist/
+public/
+
+# 🏗️ Knex (миграции)
+knexfile.js
+migrations/
+seeds/
+
+# 📌 MacOS/Windows системные файлы
+.DS_Store
+Thumbs.db
