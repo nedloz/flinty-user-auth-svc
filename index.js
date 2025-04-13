@@ -4,16 +4,18 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const cookieParser = require('ua-parser-js')
 const usersRoutes = require('./routes/userRoutes');
-const authRoutes = require
+const authRoutes = require('./routes/authRoutes');
 const logger = require('./utils/logger');
 const errorHandler = require('./utils/errorHandler');
+const attachUserFromHeaders = require('./utils/attachUserFromHeaders');
 
 const app = express();
 app.use(express.json());
-app.use(cookieParser());
+// app.use(cookieParser());
 app.use(cors({
-    origin: ['http://localhost:3000', 'https://my-app.com'], // 2е для прода, добавить сюда адрес фронта!
+    origin: ['http://localhost:3000', 'https://my-app.com'], // 2е для прода, добавить сюда адрес фронта
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization']
@@ -31,10 +33,11 @@ const rateLimiter = rateLimit({
 app.use(helmet());
 app.use(rateLimiter);
 
+app.use(attachUserFromHeaders);
 app.use('/auth', authRoutes);
 app.use('/users/me', usersRoutes);
 app.use((req, res, next) => {
-    res.status(404).json({ error: 'Маршрут не найден' });   
+    res.status(404).json({ error: `Маршрут не найден ${req.path}` });   
 });
 app.use(errorHandler);
 

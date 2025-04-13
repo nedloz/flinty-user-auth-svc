@@ -4,7 +4,7 @@ const emailRegex = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/;
 const phoneRegex = /^\+?[1-9]\d{1,14}$/;
 
 const ProfileSchema = new mongoose.Schema({
-    user_id: { type: Number, required: true, unique: true },
+    user_id: { type: String, required: true, unique: true },
     username: { type: String, required: true },
     email: { type: String, required: true, unique: true, 
         validate: {
@@ -29,4 +29,4 @@ const ProfileSchema = new mongoose.Schema({
     updated_at: { type: Date, default: Date.now } 
 });
 
-module.exports = mongoose.model('userProfile', userProfile);
+module.exports = mongoose.model('userProfile', ProfileSchema);

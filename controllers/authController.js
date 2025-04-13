@@ -8,6 +8,7 @@ const send2FACodeViaSms = require('../utils/smsService');
 const createUserSessionAndIssueTokens = require('../utils/sessionService');
 const generate2FACode = require('../utils/twoFactorService');
 const logger = require('../utils/logger');
+const { error } = require('winston');
 
 
 // пользователь вводит email, password, username
@@ -18,11 +19,19 @@ const logger = require('../utils/logger');
 const register = async (req, res, next) => {
     try {
         const { email, password, username } = req.body;
-        const exists = Auth.findOne({ email });
+
+        if (!email || !password || !username) {
+            const err = new Error('Не хватает полей');
+            err.status(400);
+            throw err;
+        }
+
+        const exists = await Auth.findOne({ email });
 
         if (exists) {
-            res.status(409);
-            throw new Error("Пользователь с таким email уже существует");
+            const err = new Error(`Пользователь с таким ${email} и ${password} уже существует`);
+            err.status = 409;
+            throw err;
         }
 
         const userId = uuid.v4();
@@ -44,15 +53,16 @@ const register = async (req, res, next) => {
         });
 
         await userProfile.save();
-        res.status(201).json({
-            user_id: userId,
-            email,
-            username
-        })
+
         logger.info(`Профиль пользователя ${userId} сохранен в UserProfile`);
 
         const tokenResponce = await createUserSessionAndIssueTokens(user, req, res);
-        res.status(201).json(tokenResponce);
+        res.status(201).json({
+            user_id: userId,
+            email,
+            username,
+            ...tokenResponce
+        });
         logger.info(`Токены отправлены пользователю ${user.user_id}`);
 
     } catch (err) {
@@ -62,18 +72,27 @@ const register = async (req, res, next) => {
 
 const login = async (req, res, next) => {
     try {
-        const { email, pws } = req.body;
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            const err = new Error('Не хватает полей');
+            err.statusCode(400);
+            throw err;
+        }
+
         const user = await Auth.findOne({ email });
 
         if (!user) {
-            res.status(401);
-            throw new Error('Неверный email или пароль');
+            const err = new Error('Неверный email или пароль');
+            err.statusCode(401);
+            throw err;
         }
 
-        const pwsValid = await bcrypt.compare(pws, user.password);
+        const pwsValid = await bcrypt.compare(password, user.hashed_password);
         if (!pwsValid) {
-            res.status(401);
-            throw new Error('Неверный email или пароль');
+            const err = new Error('Неверный email или пароль');
+            err.statusCode(401);
+            throw err;
         }
         if (user.two_factor?.enabled) {
             const code = generate2FACode();
@@ -83,7 +102,9 @@ const login = async (req, res, next) => {
             user.two_factor.expires_at = expiresAt;
             await user.save();
 
-            await send2FACodeViaSms(user.phone_number, code);
+            send2FACodeViaSms(user.phone_number, code).catch((err) => {
+                logger.error('Ошибка при отправке SMS', { err });
+            });
             logger.info(`2FA код пользователя ${user.user_id} создан и отправлен`);
             return res.status(403).json({
                 message: '2FA required',
@@ -104,29 +125,39 @@ const login = async (req, res, next) => {
 const verify2FA = async (req, res, next) => {
     try {
         const { user_id, code } = req.body;
+        if (!user_id || !code) {
+            const err = new Error('Не хватает полей');
+            err.statusCode(400);
+            throw err;
+        }
+
         const user = await Auth.findOne({ user_id });
 
         if (!user || !user.two_factor?.enabled) {
-            res.status(400);
-            throw new Error('Двухфакторная аутенификация не активна');
+            const err = new Error('Двухфакторная аутенификация не активна');
+            err.statusCode(400);
+            throw err;
         }
 
         const { two_factor } = user;
         if (!two_factor.code || !two_factor.expires_at) {
-            res.status(400);
-            throw new Error("Код не был сгенерирован");
+            const err = new Error("Код не был сгенерирован");
+            err.statusCode(400);
+            throw err;
         }
 
         const now = new Date();
 
         if (now > new Date(two_factor.expires_at)) {
-            res.status(400);
-            throw new Error("Код истек, запросите новый");
+            const err = new Error("Код истек, запросите новый");
+            err.statusCode(400);
+            throw err;
         }
 
         if (two_factor.code !== code) {
-            res.status(400);
-            throw new Error("Неверный код");
+            const err = new Error("Неверный код");
+            err.statusCode(400);
+            throw err; 
         }
 
         user.two_factor.code = null;
@@ -149,15 +180,16 @@ const refreshToken = async (req, res, next) => {
     try {
         const { refreshToken } = req.cookies;
         if (!refreshToken) {
-            res.status(401);
-            throw new Error("Refresh токен отсутствует");
+            const err = new Error("Refresh токен отсутствует");
+            err.statusCode(401);
+            throw err; 
         }
 
         let payload;
         try {
             payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
         } catch (err) {
-            res.status(403);
+            err.statusCode(403);
             next(new Error("Невалидный refresh token"));
         }
         const { user_id, session_id } = payload;
@@ -166,15 +198,17 @@ const refreshToken = async (req, res, next) => {
         const sessionKey = `session:${user_id}:${session_id}`;
         const session = await redisClient.get(sessionKey);
         if (!session) {
-            res.status(403);
-            throw new Error('Сессия истекла или недействительна');
+            const err = new Error('Сессия истекла или недействительна');
+            err.status(403);
+            throw err;
         }
         logger.info(`Cессия ${session_id} найдена`);
 
         const user = await Auth.findOne({ user_id });
         if (!user) {
-            res.status(404);
-            throw new Error("Пользователь не найден");
+            const err = new Error("Пользователь не найден");
+            err.statusCode(404);
+            throw err; 
         }
         logger.info(`Пользователь ${user.user_id} найден`);
 
@@ -194,8 +228,9 @@ const logout = async (req, res, next) => {
     try {
         const { refreshToken } = req.cookies;
         if (!refreshToken) {
-            res.status(401);
-            throw new Error("Refresh токен отсутствует");
+            const err = new Error("Refresh токен отсутствует");
+            err.statusCode(401);
+            throw err; 
         }
 
         let payload;
@@ -203,7 +238,7 @@ const logout = async (req, res, next) => {
             payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
         } catch (err) {
             res.clearCookie('refresh_token');
-            res.status(403);
+            err.status(403);
             next(new Error("Невалидный refresh token"));
         }
         const userId = payload.user_id;
@@ -230,18 +265,21 @@ const enable2FA = async (req, res, next) => {
         const userId = req.user?.user_id;
         const { enabled } = req.body;
         if (typeof enabled !== 'boolean' || !enabled) {
-            res.status(400);
-            throw new Error("В поле enabled было переданно неправильное значение или поле не было переданно");
+            const err = new Error("В поле enabled было переданно неправильное значение или поле не было переданно");
+            err.statusCode(400);
+            throw err; 
         }
         if (!userId) {
-            res.status(401);
-            throw new Error("Вы не авторизованы");
+            const err = new Error("Вы не авторизованы");
+            err.statusCode(401);
+            throw err; 
         }
 
         const user = await Auth.findOne({ user_id: userId });
         if (!user) {
-            res.status(404);
-            throw new Error(`Пользователь ${userId} не найден`);
+            const err = new Error(`Пользователь ${userId} не найден`);
+            err.statusCode(404);
+            throw err; 
         }
 
         const now = new Date();
@@ -264,8 +302,9 @@ const enable2FA = async (req, res, next) => {
             });
         } else {
             if (!user.two_factor?.enabled) {
-                res.status(400);
-                throw new Error("2fa уже отключена");
+                const err = new Error("2fa уже отключена");
+                err.statusCode(400);
+                throw err; 
             }
 
             user.two_factor.enabled = null;
@@ -288,19 +327,22 @@ const request2FACode = async (req, res, next) => {
         const { user_id } = req.body;
 
         if (!user_id) {
-            res.status(400);
-            throw new Error('Не указан user_id');
+            const err = new Error('Не указан user_id');
+            err.statusCode(400);
+            throw err; 
         }
 
         const user = await Auth.findOne(user_id);
         if (!user) {
-            res.status(404);
-            throw new Error('Пользователь не найден');
+            const err = new Error('Пользователь не найден');
+            err.statusCode(404);
+            throw err; 
         }
 
         if (!user.two_factor?.enabled) {
-            res.status(400);
-            throw new Error('2fa не включена для этого пользователя');
+            const err = new Error('2fa не включена для этого пользователя');
+            err.statusCode(400);
+            throw err; 
         }
 
         const code = generate2FACode();
@@ -323,8 +365,9 @@ const getUserSessions = async (req, res, next) => {
     try {
         const userId = req.user?.user_id;
         if (!userId) {
-            res.status(401);
-            throw new Error('Пользователь не авторизован');
+            const err = new Error('Пользователь не авторизован');
+            err.statusCode(400);
+            throw err;
         }
 
         const sessionIds = await redisClient.sMembers(`sessions_of:${userId}`);
@@ -360,15 +403,17 @@ const deleteSessionById = async (req, res, next) => {
         const userId = req.user?.user_id;
         const sessionId = req.params.id
         if (!userId || !sessionId) {
-            res.status(400);
-            throw new Error('Пользователь не авторизован');
+            const err = new Error('Пользователь не авторизован');
+            err.statusCode(400);
+            throw err;
         }
         const key = `session:${userId}:${sessionId}`
 
         const sessionExists = await redisClient.exists(key);
         if (!sessionExists) {
-            res.status(404);
-            throw new Error('Сессия не найдена');
+            const err = new Error('Сессия не найдена');
+            err.statusCode(404);
+            throw err;
         }
 
         await redisClient.del(key);
@@ -386,8 +431,9 @@ const deleteAllSessionsExceptCurrent = async (req, res, next) => {
     try {
         const { refreshToken } = req.cookies;
         if (!refreshToken) {
-            res.status(401);
-            throw new Error("Refresh токен отсутствует");
+            const err = new Error("Refresh токен отсутствует");
+            err.statusCode(401);
+            throw err;
         }
 
         let payload;
@@ -395,7 +441,7 @@ const deleteAllSessionsExceptCurrent = async (req, res, next) => {
             payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
         } catch (err) {
             res.clearCookie('refresh_token');
-            res.status(403);
+            err.status(403);
             next(new Error("Невалидный refresh token"));
         }
         const userId = payload.user_id;
