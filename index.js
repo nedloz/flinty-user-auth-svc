@@ -55,3 +55,7 @@ app.use(errorHandler);
 // что осталось сделать: 
 // обработку картинок updateUser
 // отправку смс
+// MONGO_URI=mongodb://localhost:27017/my-db-name
+// JWT_REFRESH_SECRET=123
+// JWT_ACCESS_SECRET=132
+// REDIS_URL=redis://localhost:6379
