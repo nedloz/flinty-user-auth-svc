@@ -11,7 +11,8 @@ router.post('/logout', authController.logout);
 router.post('/refresh', authController.refreshToken);
 router.post('/2fa', authController.enable2FA);
 router.post('/request-2fa-code', authController.request2FACode);
-router.post('/verify-2fa', authController.verify2FA);
+router.post('/verify', authController.verify2FA);
+router.get('/sessions', authController.getUserSessions);
 router.delete('/sessions/:id', authController.deleteSessionById);
 router.delete('/sessions', authController.deleteAllSessionsExceptCurrent);
 

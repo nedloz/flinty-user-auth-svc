@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
-const cookieParser = require('ua-parser-js')
+const cookieParser = require('cookie-parser')
 const usersRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
 const logger = require('./utils/logger');
@@ -13,7 +13,7 @@ const attachUserFromHeaders = require('./utils/attachUserFromHeaders');
 
 const app = express();
 app.use(express.json());
-// app.use(cookieParser());
+app.use(cookieParser());
 app.use(cors({
     origin: ['http://localhost:3000', 'https://my-app.com'], // 2е для прода, добавить сюда адрес фронта
     credentials: true,
@@ -32,7 +32,10 @@ const rateLimiter = rateLimit({
 });
 app.use(helmet());
 app.use(rateLimiter);
-
+app.use((req, res, next) => {
+    logger.info(`✅ Запрос получен:, ${req.method}, ${req.originalUrl}`);
+    next();
+  });
 app.use(attachUserFromHeaders);
 app.use('/auth', authRoutes);
 app.use('/users/me', usersRoutes);
@@ -44,10 +47,10 @@ app.use(errorHandler);
 (async () => {
     try { 
         await mongoose.connect(process.env.MONGO_URI);
-        app.listen(3000, () => console.log('Сервер запущен на порту: 3000'));
+        app.listen(3000, () => console.log('✅ MongoDB connected\nСервер запущен на порту: 3000'));
 
     } catch (err) {
-        logger.error('Ошибка подключения к mongoDB: ' + err.message);
+        logger.error('❌ MongoDB error: ' + err.message);
         process.exit(1);
     }
 })();

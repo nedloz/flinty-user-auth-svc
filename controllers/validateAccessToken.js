@@ -3,7 +3,6 @@ const logger = require('../utils/logger');
 
 const validateAccessToken = (req, res) => {
     const authHeader = req.headers.authorization;
-
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         logger.warn('Попытка доступа без токена или с неверным заголовком', {
             ip: req.ip,
