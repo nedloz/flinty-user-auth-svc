@@ -39,6 +39,8 @@ app.use((req, res, next) => {
 app.use(attachUserFromHeaders);
 app.use('/auth', authRoutes);
 app.use('/users/me', usersRoutes);
+// get users/:id - возвращает информацию о любом пользователе
+
 app.use((req, res, next) => {
     res.status(404).json({ error: `Маршрут не найден ${req.path}` });   
 });
@@ -47,7 +49,7 @@ app.use(errorHandler);
 (async () => {
     try { 
         await mongoose.connect(process.env.MONGO_URI);
-        app.listen(3000, () => console.log('✅ MongoDB connected\nСервер запущен на порту: 3000'));
+        app.listen(process.env.PORT, () => console.log( `✅ MongoDB connected\nСервер запущен на порту: ${process.env.PORT}`));
 
     } catch (err) {
         logger.error('❌ MongoDB error: ' + err.message);
