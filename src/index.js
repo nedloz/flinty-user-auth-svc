@@ -15,7 +15,7 @@ const app = express();
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
-    origin: ['http://localhost:3000', 'https://my-app.com'], // 2е для прода, добавить сюда адрес фронта
+    origin: ['http://localhost'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization']

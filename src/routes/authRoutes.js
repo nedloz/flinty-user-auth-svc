@@ -17,8 +17,3 @@ router.delete('/sessions/:id', authController.deleteSessionById);
 router.delete('/sessions', authController.deleteAllSessionsExceptCurrent);
 
 module.exports = router;
-// login
-// register
-// /verify-2fa
-// refresh
-// /auth/request-2fa-code

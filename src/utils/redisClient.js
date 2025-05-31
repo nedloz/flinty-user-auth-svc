@@ -1,4 +1,5 @@
 const { createClient } = require('redis');
+const logger = require('./logger');
 
 const redis = createClient({
     url: process.env.REDIS_URL || 'redis://localhost:6379'

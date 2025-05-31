@@ -4,8 +4,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/app.js",
-    "test": "jest --runInBand --detectOpenHandles"
+    "dev": "nodemon src/app.js"
   },
   "author": "nedloz",
   "license": "ISC",
